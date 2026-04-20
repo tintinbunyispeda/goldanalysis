@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { generateNews, type DynamicNewsItem } from '@/data/dynamicData';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { Newspaper, TrendingUp, TrendingDown, Minus, Globe, Shield, BarChart3, Users, RefreshCw } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
@@ -45,8 +45,8 @@ function NewsCard({ news, t }: { news: DynamicNewsItem; t: (k: string) => string
           <Badge variant="outline" className="text-[10px] h-5 bg-accent/10 text-accent border-accent/30">
             {t(`cat.${news.category.toLowerCase()}`)}
           </Badge>
-          <span className="text-[10px] text-muted-foreground">
-            {formatDistanceToNow(news.publishedAt, { addSuffix: true })}
+          <span className="text-[10px] text-muted-foreground" title={format(news.publishedAt, 'PPpp')}>
+            {format(news.publishedAt, 'MMM d, yyyy')} · {format(news.publishedAt, 'HH:mm')} ({formatDistanceToNow(news.publishedAt, { addSuffix: true })})
           </span>
         </div>
         <div className={`flex items-center gap-1 ${style.color}`}>

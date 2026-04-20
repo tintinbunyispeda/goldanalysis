@@ -21,11 +21,14 @@ const impactDots: Record<EventImpact, string> = {
 };
 
 function EventCard({ event, t }: { event: EconomicEvent; t: (k: string) => string }) {
-  const dateLabel = isToday(event.date) 
-    ? t('time.today') 
-    : isTomorrow(event.date) 
-      ? t('time.tomorrow') 
-      : format(event.date, 'MMM dd');
+  const isEventToday    = isToday(event.date);
+  const isEventTomorrow = isTomorrow(event.date);
+  const dayLabel = isEventToday
+    ? t('time.today')
+    : isEventTomorrow
+      ? t('time.tomorrow')
+      : null;
+  const fullDate = format(event.date, 'EEE, MMM d, yyyy');
 
   return (
     <div className="p-4 rounded-lg border border-border hover:border-accent/50 transition-colors">
@@ -37,7 +40,12 @@ function EventCard({ event, t }: { event: EconomicEvent; t: (k: string) => strin
           <Badge variant="outline">{event.country}</Badge>
         </div>
         <div className="text-right">
-          <p className="text-sm font-medium text-foreground">{dateLabel}</p>
+          {dayLabel && (
+            <p className={`text-xs font-bold uppercase tracking-wide mb-0.5 ${isEventToday ? 'text-loss' : 'text-accent'}`}>
+              {dayLabel}
+            </p>
+          )}
+          <p className="text-sm font-medium text-foreground">{fullDate}</p>
           <p className="text-xs text-muted-foreground">{event.time}</p>
         </div>
       </div>
