@@ -174,7 +174,7 @@ export interface ExpertAnalysis {
 
 // Economic Events
 export type EventImpact = 'High' | 'Medium' | 'Low';
-export type EventType = 'Fed Meeting' | 'CPI Release' | 'NFP' | 'GDP' | 'PMI' | 'Retail Sales' | 'Geopolitical' | 'Other' | 'Central Bank' | 'Inflation' | 'Employment' | 'Trade' | 'Economic';
+export type EventType = 'Fed Meeting' | 'CPI Release' | 'NFP' | 'GDP' | 'PMI' | 'Retail Sales' | 'Geopolitical' | 'Other' | 'Central Bank' | 'Inflation' | 'Employment' | 'Trade' | 'Economic' | 'Growth' | 'Consumer';
 
 export interface EconomicEvent {
   id: string;
@@ -188,6 +188,7 @@ export interface EconomicEvent {
   forecast?: string;
   actual?: string;
   description: string;
+  sourceUrl?: string;
 }
 
 // Chart settings

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { generateEconomicCalendar } from '@/data/dynamicData';
 import type { EconomicEvent, EventImpact } from '@/types/gold';
 import { format, isToday, isTomorrow } from 'date-fns';
-import { Calendar, AlertCircle, RefreshCw } from 'lucide-react';
+import { Calendar, AlertCircle, RefreshCw, ExternalLink } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
 const impactStyles: Record<EventImpact, string> = {
@@ -73,6 +73,26 @@ function EventCard({ event, t }: { event: EconomicEvent; t: (k: string) => strin
               <p className="font-mono text-sm font-bold">{event.actual}</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Source link */}
+      {event.sourceUrl && (
+        <div className="mt-3 pt-2 border-t border-border/50">
+          <a
+            href={event.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[11px] text-accent hover:underline font-medium w-fit"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Lihat di {
+              event.sourceUrl.includes('federalreserve.gov') ? 'Federal Reserve' :
+              event.sourceUrl.includes('forexfactory') ? 'Forex Factory' :
+              event.sourceUrl.includes('gold.org') ? 'World Gold Council' :
+              'Investing.com'
+            }
+          </a>
         </div>
       )}
     </div>
@@ -147,20 +167,32 @@ export function EconomicCalendar() {
         </div>
 
         <div className="mt-4 p-3 bg-muted rounded-lg">
-          <div className="flex items-center gap-4 text-xs">
-            <span className="text-muted-foreground">{t('trade.impact')}:</span>
-            <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${impactDots['High']}`} />
-              <span>{t('anal.high')}</span>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-xs">
+              <span className="text-muted-foreground">{t('trade.impact')}:</span>
+              <div className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-full ${impactDots['High']}`} />
+                <span>{t('anal.high')}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-full ${impactDots['Medium']}`} />
+                <span>{t('anal.medium')}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-full ${impactDots['Low']}`} />
+                <span>{t('anal.low')}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${impactDots['Medium']}`} />
-              <span>{t('anal.medium')}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${impactDots['Low']}`} />
-              <span>{t('anal.low')}</span>
-            </div>
+            {/* Full calendar link */}
+            <a
+              href="https://www.forexfactory.com/calendar"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[11px] text-accent hover:underline font-medium shrink-0"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Kalender Lengkap
+            </a>
           </div>
         </div>
       </CardContent>

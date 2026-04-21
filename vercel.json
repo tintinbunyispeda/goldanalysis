@@ -6,6 +6,7 @@
     { "source": "/api/stooq/q/l/", "destination": "/api/stooq" },
     { "source": "/api/yahoo/v8/finance/chart/:symbol", "destination": "/api/yahoo?symbol=:symbol" },
     { "source": "/api/telegram/:slug*", "destination": "/api/telegram?slug=:slug*" },
+    { "source": "/api/predict", "destination": "/api/predict" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

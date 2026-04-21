@@ -162,23 +162,29 @@ export function useGoldPrices(refreshInterval = 15000) {
         }
       };
 
-      // Fallback data in case APIs are blocked/slow
+      // ── Retrieve last known prices from localStorage as smart fallback ──
+      // This ensures price NEVER drops to outdated hardcoded value when API fails
+      const lastXAU = parseFloat(localStorage.getItem('last_xau') || '3300');
+      const lastXAG = parseFloat(localStorage.getItem('last_xag') || '33');
+      const lastDXY = parseFloat(localStorage.getItem('last_dxy') || '99.5');
+
+      // Fallback data in case APIs are blocked/slow — uses last known prices
       const [xauSpot, xagSpot, xauHistory, xagHistory, dxyData, btcData, oilData, yieldData, vixData] = await Promise.all([
-        fetchSafe(() => fetchSpotPrice('XAU'), { price: 2350.45, prevClose: 2340.00, open: 2342.00, high: 2360.00, low: 2335.00, change: 10.45, changePercent: 0.45 }, 'XAU'),
-        fetchSafe(() => fetchSpotPrice('XAG'), { price: 28.15, prevClose: 27.90, open: 28.00, high: 28.50, low: 27.80, change: 0.25, changePercent: 0.90 }, 'XAG'),
+        fetchSafe(() => fetchSpotPrice('XAU'), { price: lastXAU, prevClose: lastXAU * 0.995, open: lastXAU * 0.997, high: lastXAU * 1.003, low: lastXAU * 0.994, change: lastXAU * 0.002, changePercent: 0.20 }, 'XAU'),
+        fetchSafe(() => fetchSpotPrice('XAG'), { price: lastXAG, prevClose: lastXAG * 0.995, open: lastXAG * 0.997, high: lastXAG * 1.004, low: lastXAG * 0.993, change: lastXAG * 0.003, changePercent: 0.30 }, 'XAG'),
         fetchSafe(() => fetchYahooHistory('GC=F'), [], 'XAU History'),
         fetchSafe(() => fetchYahooHistory('SI=F'), [], 'XAG History'),
-        fetchSafe(() => fetchYahooAsset('DX-Y.NYB'), { price: 104.50, changePercent: 0.1, history: [104.2, 104.3, 104.5] }, 'DXY'),
-        fetchSafe(() => fetchYahooAsset('BTC-USD'), { price: 65000.00, changePercent: 1.2, history: [64000, 64500, 65000] }, 'BTC'),
-        fetchSafe(() => fetchYahooAsset('CL=F'), { price: 82.50, changePercent: -0.5, history: [83.0, 82.8, 82.5] }, 'Oil'),
-        fetchSafe(() => fetchYahooAsset('^TNX'), { price: 4.5, changePercent: 0.05, history: [4.45, 4.48, 4.5] }, 'Yield'),
-        fetchSafe(() => fetchYahooAsset('^VIX'), { price: 15.2, changePercent: 2.1, history: [14.8, 15.0, 15.2] }, 'VIX'),
+        fetchSafe(() => fetchYahooAsset('DX-Y.NYB'), { price: lastDXY, changePercent: -0.2, history: [lastDXY * 1.002, lastDXY * 1.001, lastDXY] }, 'DXY'),
+        fetchSafe(() => fetchYahooAsset('BTC-USD'), { price: 84000, changePercent: 0.8, history: [83000, 83500, 84000] }, 'BTC'),
+        fetchSafe(() => fetchYahooAsset('CL=F'), { price: 63.50, changePercent: -0.8, history: [64.0, 63.8, 63.5] }, 'Oil'),
+        fetchSafe(() => fetchYahooAsset('^TNX'), { price: 4.35, changePercent: -0.05, history: [4.38, 4.36, 4.35] }, 'Yield'),
+        fetchSafe(() => fetchYahooAsset('^VIX'), { price: 30.5, changePercent: -3.2, history: [32.0, 31.0, 30.5] }, 'VIX'),
       ]);
 
       const now = Math.floor(Date.now() / 1000);
       const todayStr = new Date().toISOString().split('T')[0];
 
-      setPrices({
+      const result: LiveGoldPrices = {
         XAU: xauSpot.price,
         XAG: xagSpot.price,
         goldSilverRatio: xauSpot.price / xagSpot.price,
@@ -205,7 +211,14 @@ export function useGoldPrices(refreshInterval = 15000) {
           XAU: scaleHistory(xauHistory, xauSpot.price),
           XAG: scaleHistory(xagHistory, xagSpot.price),
         },
-      });
+      };
+
+      // Persist latest successful prices to localStorage as future fallback
+      if (xauSpot.price > 2500) localStorage.setItem('last_xau', xauSpot.price.toFixed(2));
+      if (xagSpot.price > 20) localStorage.setItem('last_xag', xagSpot.price.toFixed(2));
+      if (dxyData.price > 80) localStorage.setItem('last_dxy', dxyData.price.toFixed(2));
+
+      setPrices(result);
     } catch (err) {
       console.error('Critical gold price fetch error:', err);
       setError('Connection error');

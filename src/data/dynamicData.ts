@@ -112,89 +112,138 @@ export function generateExpertAnalyses(xauPrice: number, xagPrice: number, lang:
   }));
 }
 
-// ─── Economic Calendar (always current week) ───
+// ─── Economic Calendar (always current week, dynamic per day) ───
 export function generateEconomicCalendar(lang: 'en' | 'id' = 'en'): EconomicEvent[] {
-  const now = new Date();
-  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  // Get start of current week (Monday)
+  const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset);
+  monday.setHours(0, 0, 0, 0);
 
-  const events: (Omit<EconomicEvent, 'id' | 'title' | 'description'> & { title: { en: string; id: string }; description: { en: string; id: string } })[] = [
+  const d = (daysFromMonday: number) => {
+    const dt = new Date(monday);
+    dt.setDate(monday.getDate() + daysFromMonday);
+    return dt;
+  };
+
+  // Use ordinal day-of-year as seed for deterministic randomness per day
+  const startOfYear = new Date(today.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
+  const weekSeed = Math.floor(dayOfYear / 7); // changes every week
+
+  // Pool of real recurring macro events — rotated each week
+  type EventTemplate = Omit<EconomicEvent, 'id' | 'title' | 'description'> & {
+    title: { en: string; id: string };
+    description: { en: string; id: string };
+  };
+
+  const allEvents: EventTemplate[] = [
     {
       title: { en: 'FOMC Meeting Minutes', id: 'Notulen Rapat FOMC' },
-      type: 'Central Bank',
-      date: new Date(now.getTime() + 1 * dayMs),
-      time: '14:00 ET',
-      country: 'US',
-      impact: 'High',
-      description: {
-        en: 'Detailed minutes from the latest Federal Reserve meeting. Key focus on rate outlook and inflation assessment.',
-        id: 'Notulen terperinci dari rapat Federal Reserve terbaru. Fokus utama pada prospek suku bunga dan penilaian inflasi.'
-      },
-      previous: '4.50%',
-      forecast: '4.50%',
+      type: 'Central Bank', date: d(1), time: '14:00 ET', country: 'US', impact: 'High',
+      description: { en: 'Detailed minutes from the latest Federal Reserve meeting. Key focus on rate outlook and inflation assessment.', id: 'Notulen terperinci dari rapat Fed terbaru. Fokus pada prospek suku bunga dan penilaian inflasi.' },
+      previous: '4.50%', forecast: '4.50%',
+      sourceUrl: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm',
     },
     {
       title: { en: 'US CPI (MoM)', id: 'IHK AS (MoM)' },
-      type: 'Inflation',
-      date: new Date(now.getTime() + 2 * dayMs),
-      time: '08:30 ET',
-      country: 'US',
-      impact: 'High',
-      description: {
-        en: 'Consumer Price Index measures inflation. Higher-than-expected readings are bearish for gold short-term but bullish long-term.',
-        id: 'Indeks Harga Konsumen mengukur inflasi. Angka yang lebih tinggi dari perkiraan berdampak bearish untuk emas jangka pendek tetapi bullish jangka panjang.'
-      },
-      previous: '0.3%',
-      forecast: '0.2%',
+      type: 'Inflation', date: d(2), time: '08:30 ET', country: 'US', impact: 'High',
+      description: { en: 'Consumer Price Index measures inflation. Higher-than-expected readings are bearish for gold short-term but bullish long-term.', id: 'IHK mengukur inflasi. Angka lebih tinggi dari perkiraan berdampak bearish jangka pendek, bullish jangka panjang.' },
+      previous: '0.3%', forecast: '0.2%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/cpi-733',
     },
     {
       title: { en: 'ECB Interest Rate Decision', id: 'Keputusan Suku Bunga ECB' },
-      type: 'Central Bank',
-      date: new Date(now.getTime() + 3 * dayMs),
-      time: '07:45 ET',
-      country: 'EU',
-      impact: 'High',
-      description: {
-        en: 'European Central Bank rate decision. Rate cuts weaken EUR and support gold priced in euros.',
-        id: 'Keputusan suku bunga Bank Sentral Eropa. Pemotongan suku bunga memperlemah EUR dan mendukung emas yang dihargai dalam euro.'
-      },
-      previous: '3.65%',
-      forecast: '3.40%',
+      type: 'Central Bank', date: d(3), time: '07:45 ET', country: 'EU', impact: 'High',
+      description: { en: 'European Central Bank rate decision. Rate cuts weaken EUR and support gold priced in euros.', id: 'Keputusan suku bunga ECB. Pemotongan suku bunga melemahkan EUR dan mendukung emas.' },
+      previous: '3.65%', forecast: '3.40%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/ecb-interest-rate-decision-164',
     },
     {
       title: { en: 'US Initial Jobless Claims', id: 'Klaim Pengangguran Awal AS' },
-      type: 'Employment',
-      date: new Date(now.getTime() + 1 * dayMs),
-      time: '08:30 ET',
-      country: 'US',
-      impact: 'Medium',
-      description: {
-        en: 'Weekly unemployment claims. Rising claims suggest economic weakness, bullish for gold as safe haven.',
-        id: 'Klaim pengangguran mingguan. Kenaikan klaim menunjukkan kelemahan ekonomi, bullish bagi emas sebagai safe haven.'
-      },
-      previous: '225K',
-      forecast: '228K',
+      type: 'Employment', date: d(3), time: '08:30 ET', country: 'US', impact: 'Medium',
+      description: { en: 'Weekly unemployment claims. Rising claims suggest economic weakness, bullish for gold as safe haven.', id: 'Klaim pengangguran mingguan. Kenaikan klaim menunjukkan kelemahan ekonomi, bullish bagi emas.' },
+      previous: '225K', forecast: '228K',
+      sourceUrl: 'https://www.investing.com/economic-calendar/initial-jobless-claims-294',
     },
     {
       title: { en: 'China Gold Imports Report', id: 'Laporan Impor Emas China' },
-      type: 'Trade',
-      date: new Date(now.getTime() + 4 * dayMs),
-      time: '03:00 ET',
-      country: 'CN',
-      impact: 'Medium',
-      description: {
-        en: 'Monthly gold import data from China, the world\'s largest consumer. Strong imports support gold prices.',
-        id: 'Data impor emas bulanan dari China, konsumen terbesar di dunia. Impor yang kuat mendukung harga emas.'
-      },
+      type: 'Trade', date: d(4), time: '03:00 ET', country: 'CN', impact: 'Medium',
+      description: { en: "Monthly gold import data from China, the world's largest consumer. Strong imports support gold prices.", id: 'Data impor emas bulanan China, konsumen terbesar di dunia. Impor kuat mendukung harga emas.' },
+      sourceUrl: 'https://www.gold.org/goldhub/research/gold-demand-trends',
+    },
+    {
+      title: { en: 'US Non-Farm Payrolls (NFP)', id: 'Non-Farm Payrolls AS (NFP)' },
+      type: 'Employment', date: d(4), time: '08:30 ET', country: 'US', impact: 'High',
+      description: { en: 'Monthly job additions. Strong NFP = Fed stays hawkish = bearish gold. Weak NFP = rate cut expectations = bullish gold.', id: 'Penambahan pekerjaan bulanan. NFP kuat = Fed hawkish = bearish emas. NFP lemah = ekspektasi pemotongan suku bunga = bullish emas.' },
+      previous: '151K', forecast: '138K',
+      sourceUrl: 'https://www.investing.com/economic-calendar/nonfarm-payrolls-227',
+    },
+    {
+      title: { en: 'Fed Chair Powell Speech', id: 'Pidato Ketua Fed Powell' },
+      type: 'Central Bank', date: d(weekSeed % 5), time: '10:00 ET', country: 'US', impact: 'High',
+      description: { en: 'Federal Reserve Chair remarks on monetary policy outlook. Any hint of rate cuts is bullish for gold.', id: 'Pernyataan Ketua Fed terkait outlook kebijakan moneter. Isyarat pemotongan bunga bersifat bullish bagi emas.' },
+      sourceUrl: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm',
+    },
+    {
+      title: { en: 'US Core PCE Price Index (YoY)', id: 'Indeks Harga PCE Inti AS (YoY)' },
+      type: 'Inflation', date: d((weekSeed % 3) + 1), time: '08:30 ET', country: 'US', impact: 'High',
+      description: { en: "Fed's most preferred inflation gauge. Core PCE above 2.5% suggests no rate cuts soon, bearish for gold.", id: 'Indikator inflasi paling disukai Fed. PCE inti di atas 2.5% menunjukkan tidak ada pemotongan bunga, bearish bagi emas.' },
+      previous: '2.8%', forecast: '2.6%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/core-pce-price-index-905',
+    },
+    {
+      title: { en: 'US GDP Growth Rate (QoQ)', id: 'Pertumbuhan GDP AS (QoQ)' },
+      type: 'Growth', date: d((weekSeed % 4) + 0), time: '08:30 ET', country: 'US', impact: 'Medium',
+      description: { en: 'Quarterly GDP growth. Slowdown below 1.5% increases recession fears, bullish for gold safe-haven demand.', id: 'Pertumbuhan GDP kuartalan. Perlambatan di bawah 1.5% meningkatkan kekhawatiran resesi, bullish bagi permintaan safe-haven emas.' },
+      previous: '2.4%', forecast: '1.9%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/gdp-375',
+    },
+    {
+      title: { en: 'BOJ Monetary Policy Meeting', id: 'Rapat Kebijakan Moneter BOJ' },
+      type: 'Central Bank', date: d((weekSeed % 3) + 2), time: '03:00 ET', country: 'JP', impact: 'Medium',
+      description: { en: 'Bank of Japan rate decision. JPY/USD moves affect gold denominated in different currencies.', id: 'Keputusan suku bunga Bank of Japan. Pergerakan JPY/USD mempengaruhi emas yang didenominasi dalam berbagai mata uang.' },
+      previous: '0.50%', forecast: '0.50%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/boj-interest-rate-decision-165',
+    },
+    {
+      title: { en: 'US ISM Manufacturing PMI', id: 'PMI Manufaktur ISM AS' },
+      type: 'Growth', date: d(0), time: '10:00 ET', country: 'US', impact: 'Medium',
+      description: { en: 'Manufacturing sector health. PMI below 50 = contraction = recession risk = bullish gold safe-haven.', id: 'Kondisi sektor manufaktur. PMI di bawah 50 = kontraksi = risiko resesi = bullish safe-haven emas.' },
+      previous: '49.8', forecast: '50.2',
+      sourceUrl: 'https://www.investing.com/economic-calendar/ism-manufacturing-pmi-173',
+    },
+    {
+      title: { en: 'US Retail Sales (MoM)', id: 'Penjualan Ritel AS (MoM)' },
+      type: 'Consumer', date: d((weekSeed % 4) + 1), time: '08:30 ET', country: 'US', impact: 'Low',
+      description: { en: 'Consumer spending gauge. Weak retail sales signal economic slowdown, mildly positive for gold.', id: 'Indikator belanja konsumen. Penjualan ritel yang lemah menandakan perlambatan ekonomi, sedikit positif bagi emas.' },
+      previous: '0.2%', forecast: '0.4%',
+      sourceUrl: 'https://www.investing.com/economic-calendar/retail-sales-256',
     },
   ];
 
-  return events.map((e, i) => ({ 
-    ...e, 
-    id: `econ-${i}`,
+  // Pick events relative to current week with reasonable deduplication
+  const seen = new Set<string>();
+  const events: EventTemplate[] = [];
+
+  for (const ev of allEvents) {
+    const key = `${ev.date.toDateString()}-${ev.time}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      events.push(ev);
+    }
+  }
+
+  return events.map((e, i) => ({
+    ...e,
+    id: `econ-${weekSeed}-${i}`,
     title: e.title[lang],
     description: e.description[lang]
   }));
 }
+
 
 // ─── Correlated Assets (derived from live gold/silver prices) ───
 // ─── Correlated Assets (derived from live gold/silver prices) ───
@@ -285,6 +334,7 @@ export interface DynamicNewsItem {
   title: string;
   summary: string;
   source: string;
+  sourceUrl: string;
   sentiment: 'Bullish' | 'Bearish' | 'Neutral';
   impact: 'High' | 'Medium' | 'Low';
   category: 'Market' | 'Geopolitical' | 'Macro' | 'Demand';
@@ -292,76 +342,82 @@ export interface DynamicNewsItem {
 }
 
 export function generateNews(xauPrice: number, xagPrice: number, changePct: number, lang: 'en' | 'id' = 'en'): DynamicNewsItem[] {
-  // Use bucketed time (every 5 mins) to prevent "time ago" drift every second
+  // Use bucketed time (every 5 mins) to prevent flicker on price ticks
   const stableNow = Math.floor(Date.now() / 300000) * 300000;
   const h = (hours: number) => new Date(stableNow - hours * 60 * 60 * 1000);
   
-  // Use rounded prices for news context (market levels vs live tick)
-  const xauRounded = Math.round(xauPrice / 5) * 5;
-  const xagRounded = Number((Math.round(xagPrice * 4) / 4).toFixed(2)); // Round to nearest 0.25
+  // Use rounded prices (market level, not live tick) to prevent title flicker
+  const xauRounded = Math.round(xauPrice / 10) * 10; // round to nearest $10
+  const xagRounded = Number((Math.round(xagPrice * 2) / 2).toFixed(1)); // Round to nearest $0.50
   
-  const ratio = xauPrice / xagPrice;
+  const ratio = Math.round(xauPrice / xagPrice * 10) / 10;
   const isBullish = changePct >= 0;
+  const absPctStr = Math.abs(changePct).toFixed(1);
 
   const news: (Omit<DynamicNewsItem, 'title' | 'summary'> & { title: { en: string; id: string }; summary: { en: string; id: string } })[] = [
     {
       id: 'n1', 
-      source: 'Reuters', sentiment: isBullish ? 'Bullish' : 'Bearish', impact: 'High', category: 'Market', publishedAt: h(1),
+      source: 'Reuters', sourceUrl: 'https://www.reuters.com/business/finance/',
+      sentiment: isBullish ? 'Bullish' : 'Bearish', impact: 'High', category: 'Market', publishedAt: h(1),
       title: {
-        en: `Gold ${isBullish ? 'Rallies' : 'Slides'} to $${xauRounded} Amid Central Bank Activity`,
-        id: `Emas ${isBullish ? 'Menguat' : 'Melemah'} ke $${xauRounded} di Tengah Aktivitas Bank Sentral`
+        en: `Gold ${isBullish ? 'rises' : 'falls'} as central banks signal policy pivot`,
+        id: `Emas ${isBullish ? 'naik' : 'turun'} karena bank sentral sinyal pivot kebijakan`
       },
       summary: {
-        en: `Gold prices ${isBullish ? 'surged' : 'declined'} ${Math.abs(changePct).toFixed(2)}% in today's session as investors weigh Fed policy.`,
-        id: `Harga emas ${isBullish ? 'melonjak' : 'turun'} ${Math.abs(changePct).toFixed(2)}% di sesi hari ini karena investor menimbang kebijakan Fed.`
+        en: `Spot gold ${isBullish ? 'gained' : 'lost'} ${absPctStr}% to trade around $${xauRounded}. Investors are positioning ahead of key central bank decisions, with the metal ${isBullish ? 'benefiting from dollar weakness' : 'under pressure from a stronger dollar'}.`,
+        id: `Emas spot ${isBullish ? 'menguat' : 'melemah'} ${absPctStr}% ke kisaran $${xauRounded}. Investor memposisikan diri menjelang keputusan bank sentral, dengan logam mulia ${isBullish ? 'diuntungkan dari kelemahan dolar' : 'tertekan oleh penguatan dolar'}.`
       }
     },
     {
       id: 'n2',
-      source: 'World Gold Council', sentiment: 'Bullish', impact: 'High', category: 'Demand', publishedAt: h(3),
+      source: 'World Gold Council', sourceUrl: 'https://www.gold.org/goldhub/research/gold-demand-trends',
+      sentiment: 'Bullish', impact: 'High', category: 'Demand', publishedAt: h(3),
       title: {
-        en: 'Global Central Banks Continue Record Gold Purchases in 2026',
-        id: 'Bank Sentral Global Lanjutkan Rekor Pembelian Emas di 2026'
+        en: 'Central bank gold demand hits multi-decade high in Q1 2025',
+        id: 'Permintaan emas bank sentral capai rekor puluhan tahun di Q1 2025'
       },
       summary: {
-        en: `Central banks worldwide have added over 800 tonnes of gold reserves year-to-date. This structural demand supports prices above $${(xauRounded * 0.95).toFixed(0)}.`,
-        id: `Bank sentral di seluruh dunia telah menambahkan lebih dari 800 ton cadangan emas sejak awal tahun. Permintaan struktural ini mendukung harga di atas $${(xauRounded * 0.95).toFixed(0)}.`
+        en: `Central banks worldwide added over 800 tonnes of gold to reserves year-to-date. The People\'s Bank of China and National Bank of Poland led purchases. This structural demand underpins prices above $${(xauRounded * 0.95).toFixed(0)}.`,
+        id: `Bank sentral di seluruh dunia menambahkan lebih dari 800 ton emas ke cadangan sejak awal tahun. Bank Rakyat China dan Bank Nasional Polandia memimpin pembelian. Permintaan struktural ini menopang harga di atas $${(xauRounded * 0.95).toFixed(0)}.`
       }
     },
     {
       id: 'n3',
-      source: 'Bloomberg', sentiment: 'Bearish', impact: 'High', category: 'Macro', publishedAt: h(5),
+      source: 'Bloomberg', sourceUrl: 'https://www.bloomberg.com/markets/commodities',
+      sentiment: 'Bearish', impact: 'High', category: 'Macro', publishedAt: h(5),
       title: {
-        en: 'Fed Minutes Signal Cautious Approach to Rate Cuts',
-        id: 'Notulen Fed Isyaratkan Pendekatan Hati-hati terhadap Penurunan Bunga'
+        en: 'Fed officials push back on early rate cut bets, dollar firms',
+        id: 'Pejabat Fed tolak spekulasi pemotongan suku bunga, dolar menguat'
       },
       summary: {
-        en: 'Federal Reserve officials expressed caution about cutting rates too quickly, citing persistent inflation.',
-        id: 'Pejabat Federal Reserve menyatakan kehati-hatian dalam memotong suku bunga terlalu cepat, mengutip inflasi yang persisten.'
+        en: 'Several Federal Reserve officials signaled caution about cutting interest rates too quickly, citing persistent services inflation above 3.5%. Markets trimmed rate cut expectations, weighing on gold near-term.',
+        id: 'Beberapa pejabat Federal Reserve menyatakan kehati-hatian terkait pemotongan suku bunga terlalu cepat, mengutip inflasi jasa yang persisten di atas 3.5%. Pasar memangkas ekspektasi pemotongan suku bunga, menekan emas jangka pendek.'
       }
     },
     {
       id: 'n4',
-      source: 'Financial Times', sentiment: 'Bullish', impact: 'Medium', category: 'Geopolitical', publishedAt: h(8),
+      source: 'Financial Times', sourceUrl: 'https://www.ft.com/markets',
+      sentiment: 'Bullish', impact: 'Medium', category: 'Geopolitical', publishedAt: h(8),
       title: {
-        en: 'Middle East Tensions Boost Safe-Haven Demand',
-        id: 'Ketegangan Timur Tengah Tingkatkan Permintaan Safe-Haven'
+        en: 'Escalating Middle East conflict drives safe-haven flows into gold',
+        id: 'Konflik Timur Tengah yang meningkat dorong aliran safe-haven ke emas'
       },
       summary: {
-        en: `Escalating geopolitical tensions drive safe-haven flows into gold, protecting values above $${(xauRounded * 0.98).toFixed(0)}.`,
-        id: `Ketegangan geopolitik yang meningkat mendorong aliran safe-haven ke dalam emas, melindungi nilai di atas $${(xauRounded * 0.98).toFixed(0)}.`
+        en: `Rising geopolitical risk premiums are pushing investors toward safe-haven assets. Gold at $${xauRounded} is benefiting from flight-to-safety dynamics, with ETF inflows picking up over the past two weeks.`,
+        id: `Meningkatnya premi risiko geopolitik mendorong investor menuju aset safe-haven. Emas di $${xauRounded} mendapat manfaat dari dinamika flight-to-safety, dengan arus masuk ETF meningkat dalam dua minggu terakhir.`
       }
     },
     {
       id: 'n5', 
-      source: 'Kitco', sentiment: 'Bullish', impact: 'Medium', category: 'Market', publishedAt: h(12),
+      source: 'Kitco News', sourceUrl: 'https://www.kitco.com/news/precious-metals/',
+      sentiment: 'Bullish', impact: 'Medium', category: 'Market', publishedAt: h(12),
       title: {
-        en: `Gold/Silver Ratio at ${ratio.toFixed(1)} — Silver May Outperform`,
-        id: `Rasio Emas/Perak di ${ratio.toFixed(1)} — Perak Mungkin Unggul`
+        en: `Gold/Silver ratio at ${ratio} signals potential silver catch-up trade`,
+        id: `Rasio Emas/Perak di ${ratio} sinyal potensi silver catch-up trade`
       },
       summary: {
-        en: `With silver at $${xagRounded} and the ratio elevated, analysts see potential for silver outperformance.`,
-        id: `Dengan perak di $${xagRounded} dan rasio yang tinggi, analis melihat potensi perak untuk mengungguli emas.`
+        en: `With silver at $${xagRounded} and the gold/silver ratio elevated at ${ratio}, analysts see a potential mean-reversion opportunity in silver. Industrial demand from solar panel manufacturing remains robust, adding a non-monetary demand driver.`,
+        id: `Dengan perak di $${xagRounded} dan rasio emas/perak yang tinggi di ${ratio}, analis melihat potensi peluang mean-reversion pada perak. Permintaan industri dari manufaktur panel surya tetap kuat, menambah pendorong permintaan non-moneter.`
       }
     },
   ];

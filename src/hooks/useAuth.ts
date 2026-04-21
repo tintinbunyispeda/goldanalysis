@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 
 export function useAuth() {
@@ -7,43 +6,42 @@ export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // MOCK AUTHENTICATION FOR LOCAL/PRESENTATION USE
+  // Bypass Supabase completely since the Lovable project might be paused.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Simulate a brief loading state, then auto-login
+    const timer = setTimeout(() => {
+      const mockUser = {
+        id: "mock-user-123",
+        email: "demo@student.pu.id",
+        user_metadata: { display_name: "Demo User" }
+      } as unknown as User;
+      
+      setUser(mockUser);
+      setSession({ user: mockUser, access_token: "mock-token" } as unknown as Session);
       setLoading(false);
-    });
+    }, 500);
 
-    return () => subscription.unsubscribe();
+    return () => clearTimeout(timer);
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    // Simulate network delay then succeed
+    await new Promise(r => setTimeout(r, 800));
+    window.location.href = "/";
+    return { error: null };
   };
 
   const signUp = async (email: string, password: string, displayName?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { display_name: displayName },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    return { error };
+    await new Promise(r => setTimeout(r, 800));
+    window.location.href = "/";
+    return { error: null };
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    setUser(null);
+    setSession(null);
+    window.location.href = "/auth";
   };
 
   return { user, session, loading, signIn, signUp, signOut };

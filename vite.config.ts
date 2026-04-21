@@ -26,6 +26,11 @@ export default defineConfig(({ mode }) => ({
         target: 'https://api.telegram.org',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/telegram/, '')
+      },
+      '/api/rss2json': {
+        target: 'https://api.rss2json.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/rss2json/, '')
       }
     }
   },

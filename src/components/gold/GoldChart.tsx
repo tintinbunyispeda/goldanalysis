@@ -2,10 +2,17 @@ import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import type { GoldInstrument, OHLC } from '@/types/gold';
-import { calculateAllIndicators, calculateEMA, calculateSMA, generateSignal } from '@/lib/technicalIndicators';
+import {
+  calculateAllIndicators,
+  calculateEMASeries,
+  calculateRSISeries,
+  calculateMACDSeries,
+  calculateBollingerSeries,
+  calculateFibonacciLevels,
+  generateSignal,
+  calculateSMA
+} from '@/lib/technicalIndicators';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Area, ComposedChart, Bar, ReferenceLine, Cell
@@ -39,31 +46,26 @@ const formatPrice = (price: number, _instrument: GoldInstrument): string => {
 
 // Custom Candlestick component
 const Candlestick = (props: any) => {
-  const { x, y, width, height, open, close, high, low, fill, payload, yScale } = props;
+  const { x, width, payload, yScale } = props;
   if (!payload || yScale === undefined) return null;
 
-  const isUp = close >= open;
+  const isUp = payload.close >= payload.open;
   const color = isUp ? 'hsl(var(--gain))' : 'hsl(var(--loss))';
   const candleWidth = Math.max(width * 0.6, 2);
-  const wickWidth = 1;
 
-  const openY = yScale(open);
-  const closeY = yScale(close);
-  const highY = yScale(high);
-  const lowY = yScale(low);
-
+  const openY = yScale(payload.open);
+  const closeY = yScale(payload.close);
+  const highY = yScale(payload.high);
+  const lowY = yScale(payload.low);
   const bodyTop = Math.min(openY, closeY);
   const bodyHeight = Math.abs(closeY - openY) || 1;
 
   return (
     <g>
       <line
-        x1={x + width / 2}
-        y1={highY}
-        x2={x + width / 2}
-        y2={lowY}
-        stroke={color}
-        strokeWidth={wickWidth}
+        x1={x + width / 2} y1={highY}
+        x2={x + width / 2} y2={lowY}
+        stroke={color} strokeWidth={1}
       />
       <rect
         x={x + (width - candleWidth) / 2}
@@ -84,107 +86,49 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
   const [showRSI, setShowRSI] = useState(false);
   const [showMACD, setShowMACD] = useState(false);
 
+  const periodDays: Record<ChartPeriod, number> = {
+    '3D': 3, '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365
+  };
+
   const indicators = useMemo(() => calculateAllIndicators(ohlcData), [ohlcData]);
   const currentPrice = livePrice || (ohlcData.length > 0 ? ohlcData[ohlcData.length - 1].close : 0);
   const signalResult = useMemo(() => generateSignal(indicators, currentPrice), [indicators, currentPrice]);
 
-  const periodDays: Record<ChartPeriod, number> = {
-    '3D': 3,
-    '1W': 7,
-    '1M': 30,
-    '3M': 90,
-    '6M': 180,
-    '1Y': 365
-  };
-
-  // Fibonacci levels
-  const fibLevels = useMemo(() => {
-    const days = Math.min(periodDays[period], ohlcData.length);
-    const slice = ohlcData.slice(-days);
-    const highs = slice.map(d => d.high);
-    const lows = slice.map(d => d.low);
-    const high = Math.max(...highs);
-    const low = Math.min(...lows);
-    const range = high - low;
-    return {
-      high,
-      low,
-      fib236: high - range * 0.236,
-      fib382: high - range * 0.382,
-      fib500: high - range * 0.500,
-      fib618: high - range * 0.618,
-    };
-  }, [ohlcData, period]);
-
-  // Prepare chart data with EMA
-  const chartData = useMemo(() => {
+  // ── Pre-compute ALL series from full OHLC (before slicing for display) ──────
+  // This prevents drift / accumulation errors in sub-slices
+  const allSeries = useMemo(() => {
+    if (ohlcData.length === 0) return null;
     const closes = ohlcData.map(d => d.close);
+    return {
+      ema12: calculateEMASeries(closes, 12),
+      ema26: calculateEMASeries(closes, 26),
+      sma20: closes.map((_, i) =>
+        i >= 19 ? closes.slice(i - 19, i + 1).reduce((a, b) => a + b, 0) / 20 : null
+      ),
+      sma50: closes.map((_, i) =>
+        i >= 49 ? closes.slice(i - 49, i + 1).reduce((a, b) => a + b, 0) / 50 : null
+      ),
+      rsi: calculateRSISeries(closes, 14),
+      macd: calculateMACDSeries(closes),
+      bollinger: calculateBollingerSeries(closes, 20)
+    };
+  }, [ohlcData]);
+
+  // ── Fibonacci anchored to fixed 60-bar swing (stable across period changes) ──
+  const fibLevels = useMemo(() => calculateFibonacciLevels(ohlcData, 60), [ohlcData]);
+
+  // ── Chart data slice with pre-computed series values injected ────────────────
+  const chartData = useMemo(() => {
     const days = Math.min(periodDays[period], ohlcData.length);
-
-    // Pre-calculate RSI series
-    const rsiSeries: (number | null)[] = [];
-    for (let i = 0; i < ohlcData.length; i++) {
-      if (i < 14) { rsiSeries.push(null); continue; }
-      const slice = closes.slice(0, i + 1);
-      const changes = [];
-      for (let j = 1; j < slice.length; j++) changes.push(slice[j] - slice[j - 1]);
-      const recent = changes.slice(-14);
-      let gains = 0, losses = 0;
-      recent.forEach(c => { if (c > 0) gains += c; else losses += Math.abs(c); });
-      const avgGain = gains / 14;
-      const avgLoss = losses / 14;
-      rsiSeries.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-    }
-
-    // Pre-calculate MACD series
-    const macdSeries: { macd: number | null; signal: number | null; histogram: number | null }[] = [];
-    const macdValues: number[] = [];
-    for (let i = 0; i < ohlcData.length; i++) {
-      if (i < 25) {
-        macdSeries.push({ macd: null, signal: null, histogram: null });
-        continue;
-      }
-      const slice = closes.slice(0, i + 1);
-      const ema12Val = calculateEMA(slice, 12);
-      const ema26Val = calculateEMA(slice, 26);
-      const macdVal = ema12Val - ema26Val;
-      macdValues.push(macdVal);
-      const signalVal = macdValues.length >= 9 ? calculateEMA(macdValues, 9) : macdVal;
-      macdSeries.push({ macd: macdVal, signal: signalVal, histogram: macdVal - signalVal });
-    }
-
+    const offset = ohlcData.length - days;
     const sliced = ohlcData.slice(-days);
+
     return sliced.map((candle, index) => {
-      const actualIndex = ohlcData.length - days + index;
+      const gi = offset + index; // global index into full series
       const isLast = index === sliced.length - 1;
-      // Update last candle with live price
       const candleClose = isLast && livePrice ? livePrice : candle.close;
       const candleHigh = isLast && livePrice ? Math.max(candle.high, livePrice) : candle.high;
       const candleLow = isLast && livePrice ? Math.min(candle.low, livePrice) : candle.low;
-
-      const priceSlice = closes.slice(0, actualIndex + 1);
-      if (isLast && livePrice) priceSlice[priceSlice.length - 1] = livePrice;
-
-      const sma20 = priceSlice.length >= 20
-        ? priceSlice.slice(-20).reduce((a, b) => a + b, 0) / 20
-        : null;
-      const sma50 = priceSlice.length >= 50
-        ? priceSlice.slice(-50).reduce((a, b) => a + b, 0) / 50
-        : null;
-
-      const ema12 = priceSlice.length >= 12 ? calculateEMA(priceSlice, 12) : null;
-      const ema26 = priceSlice.length >= 26 ? calculateEMA(priceSlice, 26) : null;
-
-      let upperBand = null;
-      let lowerBand = null;
-      if (priceSlice.length >= 20) {
-        const slice = priceSlice.slice(-20);
-        const mean = slice.reduce((a, b) => a + b, 0) / 20;
-        const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / 20;
-        const stdDev = Math.sqrt(variance);
-        upperBand = mean + 2 * stdDev;
-        lowerBand = mean - 2 * stdDev;
-      }
 
       return {
         date: format(candle.date, 'MMM dd'),
@@ -195,20 +139,22 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
         open: candle.open,
         close: candleClose,
         volume: candle.volume,
-        sma20,
-        sma50,
-        ema12,
-        ema26,
-        upperBand,
-        lowerBand,
-        rsi: rsiSeries[actualIndex],
-        macdLine: macdSeries[actualIndex]?.macd ?? null,
-        macdSignal: macdSeries[actualIndex]?.signal ?? null,
-        macdHist: macdSeries[actualIndex]?.histogram ?? null,
-        isUp: candleClose >= candle.open
+        isUp: candleClose >= candle.open,
+        // Overlays from pre-computed series
+        sma20: allSeries?.sma20[gi] ?? null,
+        sma50: allSeries?.sma50[gi] ?? null,
+        ema12: allSeries?.ema12[gi] ?? null,
+        ema26: allSeries?.ema26[gi] ?? null,
+        upperBand: allSeries?.bollinger.upper[gi] ?? null,
+        lowerBand: allSeries?.bollinger.lower[gi] ?? null,
+        midBand: allSeries?.bollinger.middle[gi] ?? null,
+        rsi: allSeries?.rsi[gi] ?? null,
+        macdLine: allSeries?.macd.macd[gi] ?? null,
+        macdSignal: allSeries?.macd.signal[gi] ?? null,
+        macdHist: allSeries?.macd.histogram[gi] ?? null
       };
     });
-  }, [ohlcData, period, livePrice]);
+  }, [ohlcData, period, livePrice, allSeries]);
 
   const priceChange = chartData.length >= 2
     ? chartData[chartData.length - 1].price - chartData[0].price
@@ -245,6 +191,21 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
             {formatPrice(data.close, instrument)}
           </span>
         </div>
+        {/* EMA values in tooltip */}
+        {(data.ema12 != null || data.ema26 != null) && (
+          <div className="mt-1 pt-1 border-t border-border space-y-0.5">
+            {data.ema12 != null && (
+              <div><span className="text-muted-foreground">EMA12: </span>
+                <span className="font-mono text-accent">{formatPrice(data.ema12, instrument)}</span>
+              </div>
+            )}
+            {data.ema26 != null && (
+              <div><span className="text-muted-foreground">EMA26: </span>
+                <span className="font-mono" style={{ color: 'hsl(var(--warning))' }}>{formatPrice(data.ema26, instrument)}</span>
+              </div>
+            )}
+          </div>
+        )}
         {data.rsi != null && (
           <div className="mt-1 pt-1 border-t border-border">
             <span className="text-muted-foreground">RSI: </span>
@@ -256,7 +217,7 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
         {data.macdLine != null && (
           <div>
             <span className="text-muted-foreground">MACD: </span>
-            <span className={`font-mono ${data.macdHist > 0 ? 'text-gain' : 'text-loss'}`}>
+            <span className={`font-mono ${(data.macdHist ?? 0) > 0 ? 'text-gain' : 'text-loss'}`}>
               {data.macdLine.toFixed(4)}
             </span>
           </div>
@@ -278,8 +239,7 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
               <span className="font-mono text-xl font-bold">
                 {formatPrice(currentPrice, instrument)}
               </span>
-              <span className={`flex items-center gap-1 text-sm font-mono ${priceChange >= 0 ? 'text-gain' : 'text-loss'
-                }`}>
+              <span className={`flex items-center gap-1 text-sm font-mono ${priceChange >= 0 ? 'text-gain' : 'text-loss'}`}>
                 {priceChange >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
                 {priceChange >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%
               </span>
@@ -295,7 +255,7 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
           </div>
         </div>
 
-        {/* Chart Controls */}
+        {/* Period Selector */}
         <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
           <div className="flex items-center gap-1">
             {(['3D', '1W', '1M', '3M', '6M', '1Y'] as ChartPeriod[]).map((p) => (
@@ -312,91 +272,73 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
           </div>
 
           <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-            <Button
-              variant={chartType === 'area' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => setChartType('area')}
-            >
+            <Button variant={chartType === 'area' ? 'secondary' : 'ghost'} size="sm" className="h-7 px-2" onClick={() => setChartType('area')}>
               <BarChart2 className="h-4 w-4" />
             </Button>
-            <Button
-              variant={chartType === 'line' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => setChartType('line')}
-            >
+            <Button variant={chartType === 'line' ? 'secondary' : 'ghost'} size="sm" className="h-7 px-2" onClick={() => setChartType('line')}>
               <LineChartIcon className="h-4 w-4" />
             </Button>
-            <Button
-              variant={chartType === 'candle' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => setChartType('candle')}
-            >
+            <Button variant={chartType === 'candle' ? 'secondary' : 'ghost'} size="sm" className="h-7 px-2" onClick={() => setChartType('candle')}>
               <CandlestickChart className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        {/* Indicator Toggles - TradingView style toolbar */}
+        {/* Indicator Legend */}
         <div className="flex items-center gap-3 mt-2 flex-wrap text-xs">
           <span className="text-muted-foreground flex items-center gap-1">
             <Settings2 className="h-3.5 w-3.5" />
             Indicators:
           </span>
-          {/* MA Overlays */}
           <div className="flex items-center gap-3 border-r border-border pr-3">
-            {showIndicators.sma20 !== undefined && (
+            {showIndicators.sma20 && (
               <Badge variant="outline" className="text-[10px] bg-gain/10 text-gain border-gain/30 cursor-default">
                 <div className="w-2 h-0.5 bg-gain mr-1" /> SMA20
               </Badge>
             )}
-            {showIndicators.sma50 !== undefined && showIndicators.sma50 && (
+            {showIndicators.sma50 && (
               <Badge variant="outline" className="text-[10px] bg-loss/10 text-loss border-loss/30 cursor-default">
                 <div className="w-2 h-0.5 bg-loss mr-1" /> SMA50
               </Badge>
             )}
             {showIndicators.ema12 && (
-              <Badge variant="outline" className="text-[10px] bg-[hsl(var(--accent))]/10 text-[hsl(var(--accent))] border-[hsl(var(--accent))]/30 cursor-default">
-                <div className="w-2 h-0.5 bg-[hsl(var(--accent))] mr-1" /> EMA12
+              <Badge variant="outline" className="text-[10px] bg-accent/10 text-accent border-accent/30 cursor-default">
+                <div className="w-2 h-0.5 bg-accent mr-1" /> EMA12
               </Badge>
             )}
             {showIndicators.ema26 && (
-              <Badge variant="outline" className="text-[10px] bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-[hsl(var(--warning))]/30 cursor-default">
-                <div className="w-2 h-0.5 bg-[hsl(var(--warning))] mr-1" /> EMA26
+              <Badge variant="outline" className="text-[10px] cursor-default" style={{ color: 'hsl(var(--warning))', borderColor: 'hsl(var(--warning) / 0.3)', background: 'hsl(var(--warning) / 0.1)' }}>
+                <div className="w-2 h-0.5 mr-1" style={{ background: 'hsl(var(--warning))' }} /> EMA26
               </Badge>
             )}
             {showIndicators.bollinger && (
               <Badge variant="outline" className="text-[10px] cursor-default">
-                <div className="w-2 h-0.5 bg-muted-foreground mr-1" /> BB
+                <div className="w-2 h-0.5 bg-muted-foreground mr-1" /> BB(20)
               </Badge>
             )}
             {showIndicators.fibonacci && (
-              <Badge variant="outline" className="text-[10px] bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-[hsl(var(--warning))]/30 cursor-default">
-                Fib
+              <Badge variant="outline" className="text-[10px] cursor-default" style={{ color: 'hsl(var(--warning))', borderColor: 'hsl(var(--warning) / 0.3)', background: 'hsl(var(--warning) / 0.1)' }}>
+                Fib (60d)
               </Badge>
             )}
           </div>
-          {/* Sub-chart toggles */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowRSI(!showRSI)}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showRSI ? 'bg-accent/20 text-accent' : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showRSI ? 'bg-accent/20 text-accent' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
             >
-              RSI
+              RSI(14)
             </button>
             <button
               onClick={() => setShowMACD(!showMACD)}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showMACD ? 'bg-accent/20 text-accent' : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showMACD ? 'bg-accent/20 text-accent' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
             >
               MACD
             </button>
           </div>
         </div>
       </CardHeader>
+
       <CardContent>
         {/* Main Price Chart */}
         <div style={{ height: mainChartHeight }} className="w-full">
@@ -408,10 +350,11 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
                   <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="bollingerGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.1} />
-                  <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.05} />
+                  <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.08} />
+                  <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
+
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
               <XAxis
                 dataKey="date"
@@ -423,33 +366,37 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
                 domain={['auto', 'auto']}
                 tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
                 tickLine={{ stroke: 'hsl(var(--border))' }}
-                tickFormatter={(value) => value.toFixed(0)}
+                tickFormatter={(v) => v.toFixed(0)}
                 width={60}
               />
               <Tooltip content={<CustomTooltip />} />
 
-              {/* Fibonacci Levels */}
+              {/* ── Fibonacci Levels (60-day anchored, stable across period changes) ── */}
               {showIndicators.fibonacci && (
                 <>
-                  <ReferenceLine y={fibLevels.fib236} stroke="hsl(var(--warning))" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: '23.6%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
-                  <ReferenceLine y={fibLevels.fib382} stroke="hsl(var(--warning))" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: '38.2%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
-                  <ReferenceLine y={fibLevels.fib500} stroke="hsl(var(--warning))" strokeDasharray="4 4" strokeOpacity={0.8} label={{ value: '50.0%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
-                  <ReferenceLine y={fibLevels.fib618} stroke="hsl(var(--warning))" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: '61.8%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib0}    stroke="hsl(var(--warning))" strokeWidth={1} strokeOpacity={0.4} label={{ value: '0% (High)', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib236}  stroke="hsl(var(--warning))" strokeDasharray="5 3" strokeOpacity={0.7} label={{ value: '23.6%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib382}  stroke="hsl(var(--warning))" strokeDasharray="5 3" strokeOpacity={0.85} label={{ value: '38.2%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib500}  stroke="hsl(var(--warning))" strokeDasharray="3 3" strokeOpacity={1.0}  strokeWidth={1.5} label={{ value: '50.0%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib618}  stroke="hsl(var(--warning))" strokeDasharray="5 3" strokeOpacity={0.85} label={{ value: '61.8% ★', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib786}  stroke="hsl(var(--warning))" strokeDasharray="5 3" strokeOpacity={0.7} label={{ value: '78.6%', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
+                  <ReferenceLine y={fibLevels.fib1000} stroke="hsl(var(--warning))" strokeWidth={1} strokeOpacity={0.4} label={{ value: '100% (Low)', position: 'right', fill: 'hsl(var(--warning))', fontSize: 9 }} />
                 </>
               )}
 
-              {/* Bollinger Bands */}
+              {/* ── Bollinger Bands (series-based) ── */}
               {showIndicators.bollinger && (
                 <>
                   <Area type="monotone" dataKey="upperBand" stroke="none" fill="url(#bollingerGradient)" fillOpacity={1} />
-                  <Line type="monotone" dataKey="upperBand" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" strokeWidth={1} dot={false} strokeOpacity={0.5} />
-                  <Line type="monotone" dataKey="lowerBand" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" strokeWidth={1} dot={false} strokeOpacity={0.5} />
+                  <Line type="monotone" dataKey="upperBand" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" strokeWidth={1} dot={false} strokeOpacity={0.6} />
+                  <Line type="monotone" dataKey="midBand"   stroke="hsl(var(--muted-foreground))" strokeDasharray="8 4" strokeWidth={1} dot={false} strokeOpacity={0.3} />
+                  <Line type="monotone" dataKey="lowerBand" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" strokeWidth={1} dot={false} strokeOpacity={0.6} />
                 </>
               )}
 
-              {/* Price */}
+              {/* ── Price ── */}
               {chartType === 'area' && (
-                <Area type="monotone" dataKey="price" stroke="hsl(var(--accent))" strokeWidth={2} fill="url(#priceGradient)" />
+                <Area type="monotone" dataKey="price" stroke="hsl(var(--accent))" strokeWidth={2} fill="url(#priceGradient)" dot={false} />
               )}
               {chartType === 'line' && (
                 <Line type="monotone" dataKey="price" stroke="hsl(var(--accent))" strokeWidth={2} dot={false} />
@@ -463,46 +410,42 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
                     if (!payload) return null;
                     const minPrice = Math.min(...chartData.map(d => d.low));
                     const maxPrice = Math.max(...chartData.map(d => d.high));
-                    const chartHeight = mainChartHeight - 30;
-                    const yScale = (price: number) => ((maxPrice - price) / (maxPrice - minPrice)) * chartHeight + 10;
-                    return (
-                      <Candlestick key={index} x={x} y={y} width={width} height={0}
-                        open={payload.open} close={payload.close} high={payload.high} low={payload.low}
-                        payload={payload} yScale={yScale} />
-                    );
+                    const chartH = mainChartHeight - 30;
+                    const yScale = (price: number) => ((maxPrice - price) / (maxPrice - minPrice)) * chartH + 10;
+                    return <Candlestick key={index} x={x} y={y} width={width} height={0} payload={payload} yScale={yScale} />;
                   }}
                 />
               )}
 
-              {/* Moving Averages */}
+              {/* ── Moving Averages ── */}
               {showIndicators.sma20 && (
-                <Line type="monotone" dataKey="sma20" stroke="hsl(var(--gain))" strokeWidth={1.5} dot={false} name="SMA 20" />
+                <Line type="monotone" dataKey="sma20" stroke="hsl(var(--gain))" strokeWidth={1.5} dot={false} name="SMA 20" connectNulls={false} />
               )}
               {showIndicators.sma50 && (
-                <Line type="monotone" dataKey="sma50" stroke="hsl(var(--loss))" strokeWidth={1.5} dot={false} name="SMA 50" />
+                <Line type="monotone" dataKey="sma50" stroke="hsl(var(--loss))" strokeWidth={1.5} dot={false} name="SMA 50" connectNulls={false} />
               )}
 
-              {/* EMA Lines */}
+              {/* ── EMA Lines (series-based, accurate) ── */}
               {showIndicators.ema12 && (
-                <Line type="monotone" dataKey="ema12" stroke="hsl(var(--accent))" strokeWidth={1.5} dot={false} name="EMA 12" strokeDasharray="3 2" />
+                <Line type="monotone" dataKey="ema12" stroke="hsl(var(--accent))" strokeWidth={1.5} dot={false} name="EMA 12" strokeDasharray="4 2" connectNulls={false} />
               )}
               {showIndicators.ema26 && (
-                <Line type="monotone" dataKey="ema26" stroke="hsl(var(--warning))" strokeWidth={1.5} dot={false} name="EMA 26" strokeDasharray="3 2" />
+                <Line type="monotone" dataKey="ema26" stroke="hsl(var(--warning))" strokeWidth={1.5} dot={false} name="EMA 26" strokeDasharray="4 2" connectNulls={false} />
               )}
 
               {/* Current Price Reference */}
-              <ReferenceLine y={currentPrice} stroke="hsl(var(--foreground))" strokeDasharray="3 3" strokeOpacity={0.3} />
+              <ReferenceLine y={currentPrice} stroke="hsl(var(--foreground))" strokeDasharray="3 3" strokeOpacity={0.35} label={{ value: `$${currentPrice.toFixed(0)}`, position: 'left', fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
 
-        {/* RSI Sub-Chart */}
+        {/* RSI Sub-Chart — Wilder-smoothed */}
         {showRSI && (
           <div className="mt-1 border-t border-border pt-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-muted-foreground font-medium">RSI (14)</span>
+              <span className="text-[10px] text-muted-foreground font-medium">RSI (14) — Wilder Smoothed</span>
               <span className={`text-[10px] font-mono ${(chartData[chartData.length - 1]?.rsi ?? 50) > 70 ? 'text-loss' :
-                  (chartData[chartData.length - 1]?.rsi ?? 50) < 30 ? 'text-gain' : 'text-foreground'
+                (chartData[chartData.length - 1]?.rsi ?? 50) < 30 ? 'text-gain' : 'text-foreground'
                 }`}>
                 {(chartData[chartData.length - 1]?.rsi ?? 0).toFixed(1)}
               </span>
@@ -512,23 +455,23 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
                 <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                   <XAxis dataKey="date" tick={false} tickLine={false} axisLine={false} />
-                  <YAxis domain={[0, 100]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} width={60} ticks={[30, 50, 70]} />
-                  <ReferenceLine y={70} stroke="hsl(var(--loss))" strokeDasharray="3 3" strokeOpacity={0.5} />
-                  <ReferenceLine y={30} stroke="hsl(var(--gain))" strokeDasharray="3 3" strokeOpacity={0.5} />
-                  <Area type="monotone" dataKey="rsi" stroke="hsl(var(--accent))" strokeWidth={1.5} fill="hsl(var(--accent))" fillOpacity={0.1} dot={false} />
+                  <YAxis domain={[0, 100]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} width={60} ticks={[20, 30, 50, 70, 80]} />
+                  <ReferenceLine y={70} stroke="hsl(var(--loss))" strokeDasharray="3 3" strokeOpacity={0.6} label={{ value: '70', position: 'right', fill: 'hsl(var(--loss))', fontSize: 8 }} />
+                  <ReferenceLine y={50} stroke="hsl(var(--border))" strokeOpacity={0.4} />
+                  <ReferenceLine y={30} stroke="hsl(var(--gain))" strokeDasharray="3 3" strokeOpacity={0.6} label={{ value: '30', position: 'right', fill: 'hsl(var(--gain))', fontSize: 8 }} />
+                  <Area type="monotone" dataKey="rsi" stroke="hsl(var(--accent))" strokeWidth={1.5} fill="hsl(var(--accent))" fillOpacity={0.1} dot={false} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        {/* MACD Sub-Chart */}
+        {/* MACD Sub-Chart — full series-based signal line */}
         {showMACD && (
           <div className="mt-1 border-t border-border pt-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-muted-foreground font-medium">MACD (12,26,9)</span>
-              <span className={`text-[10px] font-mono ${(chartData[chartData.length - 1]?.macdHist ?? 0) >= 0 ? 'text-gain' : 'text-loss'
-                }`}>
+              <span className="text-[10px] text-muted-foreground font-medium">MACD (12, 26, 9)</span>
+              <span className={`text-[10px] font-mono ${(chartData[chartData.length - 1]?.macdHist ?? 0) >= 0 ? 'text-gain' : 'text-loss'}`}>
                 {(chartData[chartData.length - 1]?.macdLine ?? 0).toFixed(4)}
               </span>
             </div>
@@ -539,13 +482,13 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
                   <XAxis dataKey="date" tick={false} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} width={60} />
                   <ReferenceLine y={0} stroke="hsl(var(--border))" strokeWidth={1} />
-                  <Bar dataKey="macdHist" fill="hsl(var(--gain))" maxBarSize={4}>
+                  <Bar dataKey="macdHist" maxBarSize={4}>
                     {chartData.map((entry, index) => (
                       <Cell key={index} fill={(entry.macdHist ?? 0) >= 0 ? 'hsl(var(--gain))' : 'hsl(var(--loss))'} fillOpacity={0.6} />
                     ))}
                   </Bar>
-                  <Line type="monotone" dataKey="macdLine" stroke="hsl(var(--accent))" strokeWidth={1.5} dot={false} />
-                  <Line type="monotone" dataKey="macdSignal" stroke="hsl(var(--loss))" strokeWidth={1} dot={false} strokeDasharray="3 3" />
+                  <Line type="monotone" dataKey="macdLine"   stroke="hsl(var(--accent))" strokeWidth={1.5} dot={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="macdSignal" stroke="hsl(var(--loss))"   strokeWidth={1}   dot={false} strokeDasharray="3 3" connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -555,7 +498,7 @@ export function GoldChart({ instrument, livePrice, ohlcData = [], showIndicators
         {/* Signal Reasons */}
         <div className="mt-3 pt-3 border-t border-border">
           <div className="flex flex-wrap gap-2">
-            {signalResult.reasons.slice(0, 4).map((reason, i) => (
+            {signalResult.reasons.slice(0, 5).map((reason, i) => (
               <Badge key={i} variant="outline" className="text-xs">
                 {reason}
               </Badge>
