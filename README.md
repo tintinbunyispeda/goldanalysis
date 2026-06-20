@@ -136,27 +136,45 @@ Supabase
 
 ---
 
-## 📸 Screenshots
+## 📸 Platform Showcase
 
-### Dashboard
+### 📊 Advanced Technical Analysis
 
-![Dashboard](screenshots/dashboard.png)
+Interactive candlestick chart with real-time market data and professional trading indicators including MA20, MA50, EMA12, EMA26, Bollinger Bands, Fibonacci Retracement, RSI, MACD, and ADX.
 
-### AI Prediction
+![Technical Analysis](screenshots/chart.png)
+
+---
+
+### 🤖 AI Market Prediction Engine
+
+AI-powered market analysis generating bullish and bearish scenarios, confidence scores, risk/reward ratios, and indicator-based reasoning to support investment decisions.
 
 ![AI Prediction](screenshots/prediction.png)
 
-### Trading Simulator
+---
 
-![Simulator](screenshots/simulator.png)
+### 💹 Paper Trading Simulator
 
-### Technical Analysis
+Practice trading strategies with virtual funds using live market prices. Supports Long/Short positions, Take Profit, Stop Loss, and real-time profit & loss tracking.
 
-![Technical](screenshots/chart.png)
+![Trading Simulator](screenshots/simulator.png)
 
-### Telegram Alerts
+---
 
-![Telegram](screenshots/telegram.png)
+### 📰 News & Sentiment Intelligence
+
+Market sentiment monitoring with dynamically generated news insights and sentiment analysis based on current gold price movements and market conditions.
+
+![News & Sentiment](screenshots/news.png)
+
+---
+
+### 🔔 Telegram Alert System
+
+Receive instant notifications directly on Telegram when custom price targets are reached or trading events occur.
+
+![Telegram Alerts](screenshots/telegram.png)
 
 ---
 
